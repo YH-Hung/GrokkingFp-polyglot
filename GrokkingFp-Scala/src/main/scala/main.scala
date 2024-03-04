@@ -4,7 +4,7 @@ import gfp.business.BusinessLogic
 import gfp.dal.DataAccessRdfImpl
 import org.apache.jena.rdfconnection.{RDFConnection, RDFConnectionRemote}
 import cats.effect.unsafe.IORuntime
-import gfp.model.TravelGuide
+import gfp.model.{SearchReport, TravelGuide}
 
 @main
 def main(): Unit = {
@@ -21,7 +21,7 @@ def main(): Unit = {
     )
   )
 
-  val program: IO[Option[TravelGuide]] =
+  val program: IO[Either[SearchReport, TravelGuide]] =
     connectionResource
       .map(connection => DataAccessRdfImpl.getSparqlDataAccess(DataAccessRdfImpl.execQuery(connection)))
       .use(dataAccess => BusinessLogic.travelGuide(dataAccess, "Yosemite"))

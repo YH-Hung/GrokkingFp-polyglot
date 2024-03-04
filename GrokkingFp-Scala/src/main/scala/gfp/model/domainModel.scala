@@ -21,3 +21,5 @@ enum PopCultureSubject {
 }
 
 case class TravelGuide(attraction: Attraction, subjects: List[PopCultureSubject])
+
+case class SearchReport(badGuides: List[TravelGuide], problems: List[String])

@@ -1,24 +1,46 @@
 package gfp.business
 
 import cats.effect.IO
-import cats.implicits._
+import cats.implicits.*
 import gfp.dal.DataAccess
 import gfp.model
 import gfp.model.AttractionOrdering.ByLocationPopulation
 import gfp.model.PopCultureSubject.{Artist, Movie}
-import gfp.model.{PopCultureSubject, TravelGuide}
+import gfp.model.{Attraction, PopCultureSubject, SearchReport, TravelGuide}
 
 object BusinessLogic {
-  def travelGuide(data: DataAccess, attractionName: String): IO[Option[TravelGuide]] = {
-    for {
-      attractions <- data.findAttractions(attractionName, ByLocationPopulation, 1)
-      guide <- attractions.parTraverse(
-        attraction => for {
-          artists <- data.findArtistsFromLocation(attraction.location.id, 2)
-          movies <- data.findMoviesAboutLocation(attraction.location.id, 2)
-        } yield model.TravelGuide(attraction, artists.appendedAll(movies))
-      )
-    } yield guide.sortBy(guideScore).reverse.headOption
+
+  private def travelGuideForAttraction(dataAccess: DataAccess, attraction: Attraction): IO[TravelGuide] = {
+    List(
+      dataAccess.findArtistsFromLocation(attraction.location.id, 2),
+      dataAccess.findMoviesAboutLocation(attraction.location.id, 2)
+    ).parSequence.map(_.flatten).map(subjects => TravelGuide(attraction, subjects))
+  }
+
+  private def findGoodGuide(errorsOrGuides: List[Either[Throwable, TravelGuide]]): Either[SearchReport, TravelGuide] = {
+    val (errors, guides) = errorsOrGuides.separate
+    val errorMessages = errors.map(_.getMessage)
+
+    guides.sortBy(guideScore).reverse.headOption match {
+      case Some(bestGuide) =>
+        if (guideScore(bestGuide) > 55) Right(bestGuide)
+        else Left(SearchReport(guides, errorMessages))
+      case None => Left(SearchReport(List.empty, errorMessages))
+    }
+  }
+
+  def travelGuide(data: DataAccess, attractionName: String): IO[Either[SearchReport, TravelGuide]] = {
+    data
+      .findAttractions(attractionName, ByLocationPopulation, 3)
+      .attempt
+      .flatMap(_ match {
+        case Left(exception) => IO.pure(Left(SearchReport(List.empty, List(exception.getMessage))))
+        case Right(attractions) => attractions
+          .map(a => travelGuideForAttraction(data, a))
+          .map(_.attempt)
+          .parSequence
+          .map(findGoodGuide)
+      })
   }
 
   def guideScore(guide: TravelGuide): Int = {

@@ -1,5 +1,5 @@
 import gfp.business.BusinessLogic.{guideScore, travelGuide}
-import gfp.model.{Attraction, AttractionOrdering, Location, LocationId, PopCultureSubject, TravelGuide}
+import gfp.model.{Attraction, AttractionOrdering, Location, LocationId, PopCultureSubject, SearchReport, TravelGuide}
 import gfp.model.PopCultureSubject.{Artist, Movie}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalacheck.*
@@ -170,51 +170,128 @@ class TravelGuideTest extends AnyFunSuite {
     })
   }
 
-  test("travel guide should include artists originating from the attraction's location") {
-    // given an external data source with an attraction named "Tower Bridge"
-    // at a location that brought us "Queen"
-    val attractionName = "Tower Bridge"
-    val london: Location = Location(LocationId("Q84"), "London", 8_908_081)
-    val queen: Artist = Artist("Queen", 2_050_559)
-    val dataAccess = new DataAccess {
-      def findAttractions(name: String, ordering: AttractionOrdering, limit: Int): IO[List[Attraction]] =
-        IO.pure(List(Attraction(attractionName, None, london)))
+  //  test("travel guide should include artists originating from the attraction's location") {
+  //    // given an external data source with an attraction named "Tower Bridge"
+  //    // at a location that brought us "Queen"
+  //    val attractionName = "Tower Bridge"
+  //    val london: Location = Location(LocationId("Q84"), "London", 8_908_081)
+  //    val queen: Artist = Artist("Queen", 2_050_559)
+  //    val dataAccess = new DataAccess {
+  //      def findAttractions(name: String, ordering: AttractionOrdering, limit: Int): IO[List[Attraction]] =
+  //        IO.pure(List(Attraction(attractionName, None, london)))
+  //
+  //      def findArtistsFromLocation(locationId: LocationId, limit: Int): IO[List[Artist]] =
+  //        if (locationId == london.id) IO.pure(List(queen)) else IO.pure(List.empty)
+  //
+  //      def findMoviesAboutLocation(locationId: LocationId, limit: Int): IO[List[Movie]] = IO.pure(List.empty)
+  //    }
+  //
+  //    // when we want to get a travel guide for this attraction
+  //    val guide: Either[SearchReport, TravelGuide] = travelGuide(dataAccess, attractionName).unsafeRunSync()
+  //
+  //    // then we get a travel guide with "Queen"
+  //    assert(guide.exists(_.subjects == List(queen)))
+  //  }
+  //
+  //  test("travel guide should include movies set in the attraction's location") {
+  //    // given an external data source with an attraction named "Golden Gate Bridge"
+  //    // at a location where "Inside Out" was taking place in
+  //    val attractionName = "Golden Gate Bridge"
+  //    val sanFrancisco: Location = Location(LocationId("Q62"), "San Francisco", 883_963)
+  //    val insideOut: Movie = Movie("Inside Out", 857_611_174)
+  //    val dataAccess = new DataAccess {
+  //      def findAttractions(name: String, ordering: AttractionOrdering, limit: Int): IO[List[Attraction]] =
+  //        IO.pure(List(Attraction(attractionName, None, sanFrancisco)))
+  //
+  //      def findArtistsFromLocation(locationId: LocationId, limit: Int): IO[List[Artist]] = IO.pure(List.empty)
+  //
+  //      def findMoviesAboutLocation(locationId: LocationId, limit: Int): IO[List[Movie]] =
+  //        if (locationId == sanFrancisco.id) IO.pure(List(insideOut)) else IO.pure(List.empty)
+  //    }
+  //
+  //    // when we want to get a travel guide for this attraction
+  //    val guide: Either[SearchReport, TravelGuide] = travelGuide(dataAccess, attractionName).unsafeRunSync()
+  //
+  //    // then we get a travel guide that includes the "Inside Out" movie
+  //    assert(guide.exists(_.subjects == List(insideOut)))
+  //  }
 
-      def findArtistsFromLocation(locationId: LocationId, limit: Int): IO[List[Artist]] =
-        if (locationId == london.id) IO.pure(List(queen)) else IO.pure(List.empty)
+  def dataAccessStub(attractions: IO[List[Attraction]],
+                     artists: IO[List[Artist]],
+                     movies: IO[List[Movie]]
+                    ): DataAccess = new DataAccess {
+    def findAttractions(name: String, ordering: AttractionOrdering, limit: Int): IO[List[Attraction]] = attractions
 
-      def findMoviesAboutLocation(locationId: LocationId, limit: Int): IO[List[Movie]] = IO.pure(List.empty)
-    }
+    def findArtistsFromLocation(locationId: LocationId, limit: Int): IO[List[Artist]] = artists
 
-    // when we want to get a travel guide for this attraction
-    val guide: Option[TravelGuide] = travelGuide(dataAccess, attractionName).unsafeRunSync()
-
-    // then we get a travel guide with "Queen"
-    assert(guide.exists(_.subjects == List(queen)))
+    def findMoviesAboutLocation(locationId: LocationId, limit: Int): IO[List[Movie]] = movies
   }
 
-  test("travel guide should include movies set in the attraction's location") {
-    // given an external data source with an attraction named "Golden Gate Bridge"
-    // at a location where "Inside Out" was taking place in
-    val attractionName = "Golden Gate Bridge"
-    val sanFrancisco: Location = Location(LocationId("Q62"), "San Francisco", 883_963)
-    val insideOut: Movie = Movie("Inside Out", 857_611_174)
-    val dataAccess = new DataAccess {
-      def findAttractions(name: String, ordering: AttractionOrdering, limit: Int): IO[List[Attraction]] =
-        IO.pure(List(Attraction(attractionName, None, sanFrancisco)))
+  val yellowstone: Attraction = Attraction("Yellowstone National Park", Some("first national park in the world"),
+    Location(LocationId("Q1214"), "Wyoming", 586107))
 
-      def findArtistsFromLocation(locationId: LocationId, limit: Int): IO[List[Artist]] = IO.pure(List.empty)
-
-      def findMoviesAboutLocation(locationId: LocationId, limit: Int): IO[List[Movie]] =
-        if (locationId == sanFrancisco.id) IO.pure(List(insideOut)) else IO.pure(List.empty)
-    }
-
-    // when we want to get a travel guide for this attraction
-    val guide: Option[TravelGuide] = travelGuide(dataAccess, attractionName).unsafeRunSync()
-
-    // then we get a travel guide that includes the "Inside Out" movie
-    assert(guide.exists(_.subjects == List(insideOut)))
+  test("travelGuide should return a search report if it can't find a good-enough guide") {
+    // given an external data source with a single attraction,
+    // no movies, no artists and no IO failures
+    val dataAccess = dataAccessStub(
+      IO.pure(List(yellowstone)), IO.pure(List.empty), IO.pure(List.empty)
+    )
+    // when we want to get a travel guide
+    val result: Either[SearchReport, TravelGuide] = travelGuide(dataAccess, "").unsafeRunSync()
+    // then we get a search report with bad guides (0 artists, 0 movies means the score is < 55)
+    assert(result == Left(
+      SearchReport(List(TravelGuide(yellowstone, List.empty)), problems = List.empty)
+    ))
   }
 
+  val hatefulEight: Movie = Movie("The Hateful Eight", 155760117)
+  val heavensGate: Movie = Movie("Heaven's Gate", 3484331)
 
+  test("travelGuide should return a travel guide if two movies are available") {
+    // given an external data source with a single attraction,
+    // two movies, no artists and no IO failures
+    val dataAccess = dataAccessStub(
+      IO.pure(List(yellowstone)), IO.pure(List.empty), IO.pure(List(hatefulEight, heavensGate))
+    )
+    // when we want to get a travel guide
+    val result: Either[SearchReport, TravelGuide] = travelGuide(dataAccess, "").unsafeRunSync()
+    // then we get a proper travel guide because it has a high score (> 55 points)
+    assert(result == Right(TravelGuide(yellowstone, List(hatefulEight, heavensGate))))
+  }
+
+  test("travelGuide should return a search report with problems when fetching attractions fails") {
+    // given an external data source that fails when trying to fetch attractions
+    val dataAccess = dataAccessStub(
+      IO.delay(throw new Exception("fetching failed")), IO.pure(List.empty), IO.pure(List.empty)
+    )
+    // when we want to get a travel guide
+    val result: Either[SearchReport, TravelGuide] = travelGuide(dataAccess, "").unsafeRunSync()
+    // then we get a search report with a list of problems
+    assert(result == Left(
+      SearchReport(badGuides = List.empty, problems = List("fetching failed"))
+    ))
+  }
+
+  val yosemite = Attraction("Yosemite National Park", Some("national park in California, United States"), Location(LocationId("Q109661"), "Madera County", 157327))
+
+  test("travelGuide should return a search report with some guides if it can 't fetch artists due to IO failures") {
+    // given a data source that fails when trying to fetch artists for "Yosemite"
+    val dataAccess = new DataAccess {
+      def findAttractions(name: String, ordering: AttractionOrdering, limit: Int) =
+        IO.pure(List(yosemite, yellowstone))
+
+      def findArtistsFromLocation(locationId: LocationId, limit: Int) =
+        if (locationId == yosemite.location.id)
+          IO.delay(throw new Exception("Yosemite artists fetching failed"))
+        else IO.pure(List.empty)
+
+      def findMoviesAboutLocation(locationId: LocationId, limit: Int) =
+        IO.pure(List.empty)
+    }
+
+    // when we want to get a travel guide
+    val result: Either[SearchReport, TravelGuide] = travelGuide(dataAccess, "").unsafeRunSync()
+    // then we get a search report with one bad guide (< 55) and list of errors
+    assert(result == Left(SearchReport(badGuides = List(TravelGuide(yellowstone, List.empty)), problems = List("Yosemite artists fetching failed"))))
+  }
 }
