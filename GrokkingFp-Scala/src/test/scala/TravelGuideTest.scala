@@ -1,13 +1,18 @@
-import gfp.business.BusinessLogic.guideScore
-import gfp.model.{Attraction, Location, LocationId, PopCultureSubject, TravelGuide}
+import gfp.business.BusinessLogic.{guideScore, travelGuide}
+import gfp.model.{Attraction, AttractionOrdering, Location, LocationId, PopCultureSubject, TravelGuide}
 import gfp.model.PopCultureSubject.{Artist, Movie}
 import org.scalatest.funsuite.AnyFunSuite
 import org.scalacheck.*
 import Arbitrary.*
+import cats.effect.IO
+import cats.effect.unsafe.IORuntime
+import gfp.dal.DataAccess
 import org.scalatestplus.scalacheck.*
 import org.scalatestplus.scalacheck.ScalaCheckPropertyChecks.forAll
 
 class TravelGuideTest extends AnyFunSuite {
+  implicit val runtime: IORuntime = IORuntime.global
+
   test("score of a guide with a description, 0 artists, and 2 popular movies should be 65") {
     val guide = TravelGuide(
       Attraction(
@@ -152,16 +157,64 @@ class TravelGuideTest extends AnyFunSuite {
   } yield movies.appendedAll(artists)
 
   test("guide score should always be between 0 and 70 if it only contains pop culture subjects") {
-  forAll(randomPopCultureSubjects)((popCultureSubjects: List[PopCultureSubject]) => {
-    val guide = TravelGuide(
-      Attraction("Yellowstone National Park", None,
-        Location(LocationId("Q1214"), "Wyoming", 586107)),
-      popCultureSubjects
-    )
-    // min. 0 if the list of pop culture subjects is empty (there is never any description)
-    // max. 70 if there are more than four subjects with big followings
-    val score = guideScore(guide)
-    assert(score >= 0 && score <= 70)
-  })
-}
+    forAll(randomPopCultureSubjects)((popCultureSubjects: List[PopCultureSubject]) => {
+      val guide = TravelGuide(
+        Attraction("Yellowstone National Park", None,
+          Location(LocationId("Q1214"), "Wyoming", 586107)),
+        popCultureSubjects
+      )
+      // min. 0 if the list of pop culture subjects is empty (there is never any description)
+      // max. 70 if there are more than four subjects with big followings
+      val score = guideScore(guide)
+      assert(score >= 0 && score <= 70)
+    })
+  }
+
+  test("travel guide should include artists originating from the attraction's location") {
+    // given an external data source with an attraction named "Tower Bridge"
+    // at a location that brought us "Queen"
+    val attractionName = "Tower Bridge"
+    val london: Location = Location(LocationId("Q84"), "London", 8_908_081)
+    val queen: Artist = Artist("Queen", 2_050_559)
+    val dataAccess = new DataAccess {
+      def findAttractions(name: String, ordering: AttractionOrdering, limit: Int): IO[List[Attraction]] =
+        IO.pure(List(Attraction(attractionName, None, london)))
+
+      def findArtistsFromLocation(locationId: LocationId, limit: Int): IO[List[Artist]] =
+        if (locationId == london.id) IO.pure(List(queen)) else IO.pure(List.empty)
+
+      def findMoviesAboutLocation(locationId: LocationId, limit: Int): IO[List[Movie]] = IO.pure(List.empty)
+    }
+
+    // when we want to get a travel guide for this attraction
+    val guide: Option[TravelGuide] = travelGuide(dataAccess, attractionName).unsafeRunSync()
+
+    // then we get a travel guide with "Queen"
+    assert(guide.exists(_.subjects == List(queen)))
+  }
+
+  test("travel guide should include movies set in the attraction's location") {
+    // given an external data source with an attraction named "Golden Gate Bridge"
+    // at a location where "Inside Out" was taking place in
+    val attractionName = "Golden Gate Bridge"
+    val sanFrancisco: Location = Location(LocationId("Q62"), "San Francisco", 883_963)
+    val insideOut: Movie = Movie("Inside Out", 857_611_174)
+    val dataAccess = new DataAccess {
+      def findAttractions(name: String, ordering: AttractionOrdering, limit: Int): IO[List[Attraction]] =
+        IO.pure(List(Attraction(attractionName, None, sanFrancisco)))
+
+      def findArtistsFromLocation(locationId: LocationId, limit: Int): IO[List[Artist]] = IO.pure(List.empty)
+
+      def findMoviesAboutLocation(locationId: LocationId, limit: Int): IO[List[Movie]] =
+        if (locationId == sanFrancisco.id) IO.pure(List(insideOut)) else IO.pure(List.empty)
+    }
+
+    // when we want to get a travel guide for this attraction
+    val guide: Option[TravelGuide] = travelGuide(dataAccess, attractionName).unsafeRunSync()
+
+    // then we get a travel guide that includes the "Inside Out" movie
+    assert(guide.exists(_.subjects == List(insideOut)))
+  }
+
+
 }

@@ -1,12 +1,12 @@
 package gfp.dal
 
-import cats.effect.{IO, Ref}
+import cats.effect.{IO, Ref, Resource}
 import cats.implicits.*
 import gfp.model.AttractionOrdering.{ByLocationPopulation, ByName}
 import gfp.model.*
 import gfp.model.PopCultureSubject.{Artist, Movie}
 import org.apache.jena.query.{QueryFactory, QuerySolution}
-import org.apache.jena.rdfconnection.RDFConnection
+import org.apache.jena.rdfconnection.{RDFConnection, RDFConnectionRemote}
 
 import scala.jdk.CollectionConverters.*
 import scala.util.chaining.scalaUtilChainingOps
@@ -20,6 +20,15 @@ object DataAccessRdfImpl {
       |PREFIX schema: <http://schema.org/>
       |""".stripMargin
 
+  def connectionResource(address: String, endpoint: String): Resource[IO, RDFConnection] = Resource.make(
+    IO.blocking(
+      RDFConnectionRemote.create
+        .destination(address)
+        .queryEndpoint(endpoint)
+        .build
+    )
+  )(connection => IO.blocking(connection.close()))
+  
   def execQuery(connection: RDFConnection)(query: String): IO[List[QuerySolution]] = {
     query
       .pipe(QueryFactory.create)
